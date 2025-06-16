@@ -1254,10 +1254,21 @@ impl MemoryManager {
         if let Some(source_url) = source_url {
             let mut memory_file_path = url_to_path(source_url).map_err(Error::Restore)?;
             memory_file_path.push(String::from(SNAPSHOT_FILENAME));
+            let memory_file: File = OpenOptions::new()
+                .read(true)
+                .write(true) // required for PROT_WRITE
+                .open(&memory_file_path)
+                .map_err(Error::SnapshotOpen)?;
+
+            // NVX: TODO: would we ever have more than one zone? And what
+            // key would they need?
+            let mut memory_file_map: HashMap<u32, File> = HashMap::new();
+            memory_file_map.insert(0, memory_file);
 
             let mem_snapshot: MemoryManagerSnapshotData =
                 snapshot.to_state().map_err(Error::Restore)?;
 
+            // NVX: pass the memory_file_map to trigger CoW
             let mm = MemoryManager::new(
                 vm,
                 config,
@@ -1266,14 +1277,10 @@ impl MemoryManager {
                 #[cfg(feature = "tdx")]
                 false,
                 Some(&mem_snapshot),
-                None,
+                Some(memory_file_map),
                 #[cfg(target_arch = "x86_64")]
                 None,
             )?;
-
-            mm.lock()
-                .unwrap()
-                .fill_saved_regions(memory_file_path, mem_snapshot.memory_ranges)?;
 
             Ok(mm)
         } else {
@@ -1392,8 +1399,8 @@ impl MemoryManager {
         // The duplication of mmap_flags ORing here is unfortunate but it also makes
         // the complexity of the handling clear.
         let fo = if let Some(f) = existing_memory_file {
-            // It must be MAP_SHARED as we wouldn't already have an FD
-            mmap_flags |= libc::MAP_SHARED;
+            // NVX: we need MAP_PRIVATE for CoW semantics
+            mmap_flags |= libc::MAP_PRIVATE;
             Some(FileOffset::new(f, file_offset))
         } else if let Some(backing_file) = backing_file {
             if shared {
