@@ -716,6 +716,9 @@ impl MemoryManager {
         Ok((memory_regions, memory_zones))
     }
 
+    // In Nanvix we load snapshot files with CoW semantics, so we don't need to pre-fill saved
+    // memory regions.
+    #[allow(dead_code)]
     fn fill_saved_regions(
         &mut self,
         file_path: PathBuf,
